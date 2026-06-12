@@ -1,0 +1,327 @@
+import java.io.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Scanner;
+
+// ==========================================
+// 1. MAIN SYSTEM ENGINE AT THE TOP
+// ==========================================
+public class HotelSystem {
+    private static Map<Integer, Room> roomInventory = new HashMap<>();
+    private static Map<String, Reservation> activeReservations = new HashMap<>();
+    private static final String FILE_NAME = "hotel_database.txt";
+
+    public static void main(String[] args) {
+        // Load data from text database file or generate baseline inventory if none exists
+        loadDataFromFile();
+
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("=================================================");
+        System.out.println("       Grand Horizon Hotel Management System     ");
+        System.out.println("=================================================");
+
+        while (true) {
+            System.out.println("\n--- MAIN MENU ---");
+            System.out.println("1. Search Available Rooms");
+            System.out.println("2. Book a Room (With Payment Simulator)");
+            System.out.println("3. Cancel a Reservation");
+            System.out.println("4. View All Active Bookings");
+            System.out.println("5. Exit & Save Changes");
+            System.out.print("Select an option: ");
+
+            int choice = -1;
+            if (scanner.hasNextInt()) {
+                choice = scanner.nextInt();
+                scanner.nextLine(); // Clear scanner buffer
+            } else {
+                System.out.println("Invalid numeric selection.");
+                scanner.nextLine();
+                continue;
+            }
+
+            switch (choice) {
+                case 1:
+                    displayAvailableRooms();
+                    break;
+                case 2:
+                    handleBooking(scanner);
+                    break;
+                case 3:
+                    handleCancellation(scanner);
+                    break;
+                case 4:
+                    displayAllBookings();
+                    break;
+                case 5:
+                    saveDataToFile();
+                    System.out.println("\nDatabase synced successfully. Closing connection.");
+                    scanner.close();
+                    return;
+                default:
+                    System.out.println("Invalid option. Please pick 1-5.");
+            }
+        }
+    }
+
+    private static void displayAvailableRooms() {
+        System.out.println("\n=================================================");
+        System.out.println("               AVAILABLE ROOMS                   ");
+        System.out.println("=================================================");
+        boolean found = false;
+        for (Room r : roomInventory.values()) {
+            if (r.isAvailable()) {
+                System.out.println(r);
+                found = true;
+            }
+        }
+        if (!found) {
+            System.out.println("No vacancies matching inventory registries currently.");
+        }
+        System.out.println("=================================================");
+    }
+
+    private static void handleBooking(Scanner scanner) {
+        System.out.println("\n--- START NEW RESERVATION ---");
+        displayAvailableRooms();
+
+        System.out.print("Enter Room Number to book: ");
+        if (!scanner.hasNextInt()) {
+            System.out.println("Invalid entry.");
+            scanner.nextLine();
+            return;
+        }
+        int rNum = scanner.nextInt();
+        scanner.nextLine();
+
+        if (!roomInventory.containsKey(rNum) || !roomInventory.get(rNum).isAvailable()) {
+            System.out.println("Error: Room is either occupied or doesn't exist.");
+            return;
+        }
+
+        Room selectedRoom = roomInventory.get(rNum);
+
+        System.out.print("Enter Guest Full Name: ");
+        String name = scanner.nextLine().trim();
+        if (name.isEmpty()) {
+            System.out.println("Guest name cannot be blank.");
+            return;
+        }
+
+        System.out.print("Enter Number of Nights: ");
+        if (!scanner.hasNextInt()) {
+            System.out.println("Invalid duration entry.");
+            scanner.nextLine();
+            return;
+        }
+        int nights = scanner.nextInt();
+        scanner.nextLine();
+
+        if (nights <= 0) {
+            System.out.println("Stay duration must be at least 1 night.");
+            return;
+        }
+
+        double totalCost = selectedRoom.getPricePerNight() * nights;
+        System.out.printf("Total Quotation: $%.2f (%s Rate Applied)\n", totalCost, selectedRoom.getCategory());
+        
+        // --- PAYMENT GATEWAY SIMULATION ---
+        System.out.println("\n>>> SIMULATING SECURE PAYMENT GATEWAY <<<");
+        System.out.print("Enter 16-Digit Card Number (Mock Simulation): ");
+        String card = scanner.nextLine().trim();
+        System.out.print("Process Charge of $" + totalCost + "? (Y/N): ");
+        String confirm = scanner.nextLine().trim();
+
+        if (!confirm.equalsIgnoreCase("Y")) {
+            System.out.println("Transaction Aborted. Room assignment released.");
+            return;
+        }
+
+        System.out.println("Processing authorization token...");
+        System.out.println("Payment Success! Confirmation Auth Code: TXN-" + (int)(Math.random() * 90000 + 10000));
+
+        // Generate tracking ID
+        String resId = "RES" + (int)(Math.random() * 9000 + 1000);
+        
+        // Update Room Object State & Append to Registries
+        selectedRoom.setAvailable(false);
+        Reservation newRes = new Reservation(resId, name, rNum, nights, totalCost);
+        activeReservations.put(resId, newRes);
+
+        System.out.println("\n=================================");
+        System.out.println("      BOOKING CONFIRMED          ");
+        System.out.println("=================================");
+        System.out.println(newRes);
+        System.out.println("=================================");
+        
+        // Auto-save changes to file immediately
+        saveDataToFile();
+    }
+
+    private static void handleCancellation(Scanner scanner) {
+        System.out.print("\nEnter Reservation ID to cancel: ");
+        String resId = scanner.nextLine().toUpperCase().trim();
+
+        if (!activeReservations.containsKey(resId)) {
+            System.out.println("Error: Booking Reference ID not found.");
+            return;
+        }
+
+        Reservation res = activeReservations.get(resId);
+        Room targetRoom = roomInventory.get(res.getRoomNumber());
+
+        // Free the room status
+        targetRoom.setAvailable(true);
+        activeReservations.remove(resId);
+
+        System.out.printf("Success: Reservation %s cancelled. Refund of $%.2f processed back to original card.\n", 
+                resId, res.getTotalPaid());
+        
+        // Auto-save changes to file immediately
+        saveDataToFile();
+    }
+
+    private static void displayAllBookings() {
+        System.out.println("\n=========================================================================");
+        System.out.println("                       ACTIVE SYSTEM RESERVATIONS                        ");
+        System.out.println("=========================================================================");
+        if (activeReservations.isEmpty()) {
+            System.out.println("                     No active bookings registered.                      ");
+        } else {
+            for (Reservation r : activeReservations.values()) {
+                System.out.println(r);
+            }
+        }
+        System.out.println("=========================================================================");
+    }
+
+    // ==========================================
+    // DATABASE FILE PERSISTENCE (FILE I/O)
+    // ==========================================
+    private static void loadDataFromFile() {
+        File file = new File(FILE_NAME);
+        
+        if (!file.exists()) {
+            generateDefaultRooms();
+            return;
+        }
+
+        try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+            String line;
+            boolean loadingRooms = true;
+
+            while ((line = br.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty()) continue;
+
+                if (line.equals("---ROOMS---")) {
+                    loadingRooms = true;
+                    continue;
+                } else if (line.equals("---RESERVATIONS---")) {
+                    loadingRooms = false;
+                    continue;
+                }
+
+                String[] tokens = line.split("\\|");
+                if (loadingRooms) {
+                    int roomNum = Integer.parseInt(tokens[0]);
+                    String cat = tokens[1];
+                    double price = Double.parseDouble(tokens[2]);
+                    boolean avail = Boolean.parseBoolean(tokens[3]);
+                    roomInventory.put(roomNum, new Room(roomNum, cat, price, avail));
+                } else {
+                    String id = tokens[0];
+                    String guest = tokens[1];
+                    int roomNum = Integer.parseInt(tokens[2]);
+                    int nights = Integer.parseInt(tokens[3]);
+                    double paid = Double.parseDouble(tokens[4]);
+                    activeReservations.put(id, new Reservation(id, guest, roomNum, nights, paid));
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("Warning: Issue reading database. Re-generating flat configuration profiles.");
+            generateDefaultRooms();
+        }
+    }
+
+    private static void saveDataToFile() {
+        try (PrintWriter pw = new PrintWriter(new FileWriter(FILE_NAME))) {
+            pw.println("---ROOMS---");
+            for (Room r : roomInventory.values()) {
+                pw.println(r.getRoomNumber() + "|" + r.getCategory() + "|" + r.getPricePerNight() + "|" + r.isAvailable());
+            }
+
+            pw.println("---RESERVATIONS---");
+            for (Reservation res : activeReservations.values()) {
+                pw.println(res.getReservationId() + "|" + res.getGuestName() + "|" + res.getRoomNumber() + "|" + res.getNights() + "|" + res.getTotalPaid());
+            }
+        } catch (IOException e) {
+            System.out.println("Critical Error: File persistence layer failed to flush buffers.");
+        }
+    }
+
+    private static void generateDefaultRooms() {
+        roomInventory.put(101, new Room(101, "Standard", 85.00, true));
+        roomInventory.put(102, new Room(102, "Standard", 85.00, true));
+        roomInventory.put(201, new Room(201, "Deluxe", 150.00, true));
+        roomInventory.put(202, new Room(202, "Deluxe", 150.00, true));
+        roomInventory.put(301, new Room(301, "Suite", 320.00, true));
+    }
+}
+
+// ==========================================
+// 2. HELPER CLASSES AT THE BOTTOM
+// ==========================================
+class Room {
+    private int roomNumber;
+    private String category; 
+    private double pricePerNight;
+    private boolean isAvailable;
+
+    public Room(int roomNumber, String category, double pricePerNight, boolean isAvailable) {
+        this.roomNumber = roomNumber;
+        this.category = category;
+        this.pricePerNight = pricePerNight;
+        this.isAvailable = isAvailable;
+    }
+
+    public int getRoomNumber() { return roomNumber; }
+    public String getCategory() { return category; }
+    public double getPricePerNight() { return pricePerNight; }
+    public boolean isAvailable() { return isAvailable; }
+    public void setAvailable(boolean available) { isAvailable = available; }
+
+    @Override
+    public String toString() {
+        return String.format("Room #%-4d | Category: %-10s | Price/Night: $%-6.2f | Status: %s",
+                roomNumber, category, pricePerNight, (isAvailable ? "AVAILABLE" : "BOOKED"));
+    }
+}
+
+class Reservation {
+    private String reservationId;
+    private String guestName;
+    private int roomNumber;
+    private int nights;
+    private double totalPaid;
+
+    public Reservation(String reservationId, String guestName, int roomNumber, int nights, double totalPaid) {
+        this.reservationId = reservationId;
+        this.guestName = guestName;
+        this.roomNumber = roomNumber;
+        this.nights = nights;
+        this.totalPaid = totalPaid;
+    }
+
+    public String getReservationId() { return reservationId; }
+    public String getGuestName() { return guestName; }
+    public int getRoomNumber() { return roomNumber; }
+    public int getNights() { return nights; }
+    public double getTotalPaid() { return totalPaid; }
+
+    @Override
+    public String toString() {
+        return String.format("ID: %-8s | Guest: %-12s | Room: #%-4d | Nights: %-2d | Paid: $%.2f",
+                reservationId, guestName, roomNumber, nights, totalPaid);
+    }
+}
